@@ -5,3 +5,6 @@ erl_crash.dump
 *.ez
 *.beam
 mix.lock
+/.peers
+/.keys
+/.utxo

@@ -1,8 +1,8 @@
 defmodule Wallet do
-  alias UltraDark.Transaction
-  alias UltraDark.Utilities
-  alias UltraDark.UtxoStore
-  alias UltraDark.KeyPair
+  alias Elixium.Transaction
+  alias Elixium.Utilities
+  alias Elixium.Store.Utxo
+  alias Elixium.KeyPair
 
   def new_transaction(address, amount, desired_fee)  do
     inputs = find_suitable_inputs(amount + desired_fee)
@@ -17,16 +17,16 @@ defmodule Wallet do
     end
 
     tx =
-    %Transaction{
-      designations: designations,
-      inputs: inputs,
-      timestamp: DateTime.utc_now |> DateTime.to_string
-    }
+      %Transaction{
+        designations: designations,
+        inputs: inputs,
+        timestamp: DateTime.utc_now |> DateTime.to_string
+      }
 
     # The transaction ID is just the merkle root of all the inputs, concatenated with the timestamp
     id =
-    Transaction.calculate_hash(tx) <> tx.timestamp
-    |> (&(Utilities.sha_base16 &1)).()
+      Transaction.calculate_hash(tx) <> tx.timestamp
+      |> Utilities.sha_base16()
 
     tx = %{tx | id: id}
     Map.merge(tx, Transaction.calculate_outputs(tx))
@@ -37,20 +37,22 @@ defmodule Wallet do
   """
   @spec find_pubkey_utxos(String.t) :: list
   def find_pubkey_utxos(public_key) do
-    UtxoStore.find_by_address(public_key)
+    Utxo.find_by_address(public_key)
   end
 
   def find_wallet_utxos do
-    {:ok, keyfiles} = File.ls(".keys")
+    case File.ls(".keys") do
+      {:ok, keyfiles} ->
+        Enum.flat_map(keyfiles, fn file ->
+          {pub, priv} = KeyPair.get_from_file(".keys/#{file}")
 
-    keyfiles
-    |> Enum.flat_map(fn file ->
-      {pub, priv} = KeyPair.get_from_file(".keys/#{file}")
-      hex = pub |> Base.encode16
-
-      find_pubkey_utxos(hex)
-      |> Enum.map( &(Map.merge(&1, %{signature: KeyPair.sign(priv, &1.txoid) |> Base.encode16})) )
-    end)
+          pub
+          |> Base.encode16()
+          |> find_pubkey_utxos()
+          |> Enum.map( &(Map.merge(&1, %{signature: KeyPair.sign(priv, &1.txoid) |> Base.encode16})) )
+        end)
+      {:error, :enoent} -> IO.puts "No keypair file found"
+    end
   end
 
   @doc """
